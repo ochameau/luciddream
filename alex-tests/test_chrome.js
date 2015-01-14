@@ -1,6 +1,10 @@
 MARIONETTE_CONTEXT = "chrome";
 
+Cu.import("resource://gre/modules/Task.jsm");
 const {Promise: promise} = Cu.import("resource://gre/modules/devtools/deprecated-sync-thenables.js", {});
+let loader = Cc["@mozilla.org/moz/jssubscript-loader;1"].getService(Ci.mozIJSSubScriptLoader);
+let EventUtils = {};
+loader.loadSubScript("chrome://marionette/content/EventUtils.js", EventUtils);
 
 function openWebIDE() {
   let deferred = promise.defer();
@@ -26,6 +30,8 @@ function connect(win) {
       connection.host = "localhost";
       connection.port = 6666;
       // Keep connecting as b2g desktop may still be initializing when we start trying to connect
+      // XXX: This introduce manyyyyyyy error messages in the browser console,
+      //      that would be great to ignore these errors??
       connection.keepConnecting = true;
       connection.connect();
       return promise.resolve();
@@ -44,7 +50,6 @@ function connect(win) {
 
   let panelNode = win.document.querySelector("#runtime-panel");
   let items = panelNode.querySelectorAll(".runtime-panel-item-simulator");
-  //is(items.length, 1, "Found one runtime button");
 
   let deferred = promise.defer();
   // XXX: Tweak app-manager.js to make it easier to know once it is ready!
@@ -53,9 +58,10 @@ function connect(win) {
   // (i.e. runtime apps can be listed)
   win.AppManager.on("app-manager-update", (_, name) => {
     if (name == "runtime-apps-found") {
-      deferred.resolve(win);
+      deferred.resolve();
     }
   });
+
   items[0].click();
 
   return deferred.promise;
@@ -68,34 +74,77 @@ function selectApp(win) {
   btn.click();
   setTimeout(function () {
     let runtimeAppsNodes = win.document.querySelectorAll("#project-panel-runtimeapps > .panel-item");
+    // First runtime app is the main process
+    // XXX: Add special class on it in order to be able to assert it
     runtimeAppsNodes[0].click();
+
+    // Wait a tick in order to let onclick actions execute
     setTimeout(function () {
-    deferred.resolve(win);
+      deferred.resolve();
     });
   });
 
   return deferred.promise;
 }
 
-function checkConsole(win) {
-  win.UI.toolboxPromise.then(toolbox => {
-    return toolbox.selectTool("webconsole").then(() => {
-      let hud = toolbox.getCurrentPanel().hud;
-      return {
-        toolbox: toolbox,
-        hud: hud
-      };
-    });
-  })
-  .then(({toolbox, hud}) => {
-    return hud.jsterm.execute("window.location.href");
-  }).then(msg => {
-    ok(msg.textContent.contains("shell.html"), "Console works and we are evaluating within the main process");
+function openTool(toolbox, tool) {
+  return toolbox.selectTool(tool)
+                .then(() => toolbox.getCurrentPanel());
+}
+
+function checkConsole(panel) {
+  let deferred = promise.defer();
+
+  //XXX: figure out why panel.panelWin doesn't exists
+  // >> looks like WebConsolePanel just doesn't set it,
+  //    even if it looks like some tests rely on it !!???
+  let window = panel.hud.iframeWindow;
+  let hud = panel.hud;
+
+  hud.ui.on("new-messages", function (event, messages) {
+    for (let msg of messages) {
+      let elem = msg.node;
+      let body = elem.querySelector(".message-body");
+      if (body.textContent.contains("shell.html")) {
+        ok(true, "Console works and we are evaluating within the main process");
+        deferred.resolve();
+      }
+    }
+  });
+
+  // Simulate input in the console
+  hud.jsterm.inputNode.focus();
+  hud.jsterm.setInputValue("window.location.href");
+  EventUtils.synthesizeKey("VK_RETURN", {}, window);
+
+  return deferred.promise;
+}
+
+function checkInspector(inspector) {
+  // Select the system app iframe
+  let walker = inspector.walker;
+  let updated = inspector.once("inspector-updated");
+  walker.querySelector(walker.rootNode, "#systemapp")
+        .then(nodeFront => {
+          inspector.selection.setNodeFront(nodeFront, "test");
+        });
+  return updated.then(() => {
+    is(inspector.selection.nodeFront.id, "systemapp", "Inspector works and is targetting the main process");
   });
 }
 
-openWebIDE()
-  .then(connect)
-  .then(selectApp)
-  .then(checkConsole)
-  .then(finish);
+Task.spawn(function () {
+  let win = yield openWebIDE();
+  yield connect(win);
+  yield selectApp(win);
+  let toolbox = yield win.UI.toolboxPromise;
+  let console = yield openTool(toolbox, "webconsole");
+  yield checkConsole(console);
+  let inspector = yield openTool(toolbox, "inspector");
+  yield checkInspector(inspector);
+  finish();
+}).catch(e => {
+  ok(false, "Exception: " + e);
+  // XXX: We have to call finish in order to be able to see assertions!
+  finish()
+});

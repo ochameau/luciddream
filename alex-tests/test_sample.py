@@ -22,7 +22,6 @@ class TestSample(LucidDreamTestCase):
         v = self.marionette.execute_async_script("""
           Cu.import('resource://gre/modules/devtools/dbg-server.jsm');
           function check() {
-            Cu.reportError("check");
             if (true || DebuggerServer.initialized) {
               marionetteScriptFinished('ok');
             } else {
@@ -41,4 +40,4 @@ class TestSample(LucidDreamTestCase):
         self.browser.set_context("chrome")
         self.run_js_test("test_chrome.js", self.browser)
 
-        self.browser.execute_async_script("setTimeout(marionetteScriptFinished.bind(null,'ok'), 4000);")
+        #self.browser.execute_async_script("setTimeout(marionetteScriptFinished.bind(null,'ok'), 10000);")

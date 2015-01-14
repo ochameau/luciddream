@@ -10,8 +10,9 @@ from marionette.marionette_test import MarionetteTestCase, MarionetteJSTestCase
 from marionette.errors import ScriptTimeoutException
 
 class LucidDreamTestCase(MarionetteTestCase):
-    def __init__(self, marionette_weakref, browser=None, **kwargs):
+    def __init__(self, marionette_weakref, browser=None, foo=None, **kwargs):
         self.browser = browser
+        self.logger = foo
         MarionetteTestCase.__init__(self, marionette_weakref, **kwargs)
 
     def run_js_test(self, filename, marionette):

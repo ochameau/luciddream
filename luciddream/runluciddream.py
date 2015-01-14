@@ -86,6 +86,7 @@ def start_browser(browserPath):
         # Need to avoid the browser and emulator's ports stepping
         # on each others' toes.
         port=2929,
+        app_args=["-jsconsole"]
     )
     runner = marionette.runner
     if runner:
@@ -117,6 +118,8 @@ def main():
     kwargs = {
         'browser': browser,
         'logger': logger,
+        'foo': logger,
+        'app_args': ['-jsconsole']
     }
     if args.b2gPath:
         kwargs['homedir'] = args.b2gPath
